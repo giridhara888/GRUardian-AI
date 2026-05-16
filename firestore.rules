@@ -1,0 +1,77 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidPrediction(data) {
+      return data.keys().hasAll(['timestamp', 'prediction', 'confidence', 'userId']) &&
+             data.timestamp is string && data.timestamp.size() <= 100 &&
+             data.prediction is string && data.prediction.size() <= 100 &&
+             data.confidence is string && data.confidence.size() <= 100 &&
+             data.userId == request.auth.uid &&
+             (data.keys().hasAll(['correct']) ? data.correct is bool : true);
+    }
+
+    match /predictions/{predictionId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming());
+      allow update: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    function isValidMetric(data) {
+      return data.keys().hasAll(['time', 'api', 'db', 'logs', 'userId']) &&
+             data.time is string && data.time.size() <= 100 &&
+             data.api is number &&
+             data.db is number &&
+             data.logs is number &&
+             data.userId == request.auth.uid;
+    }
+
+    match /metrics/{metricId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(metricId) && isValidMetric(incoming());
+      allow update: if isSignedIn() && isValidId(metricId) && isValidMetric(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    function isValidNode(data) {
+      return data.keys().hasAll(['name', 'type', 'load', 'tasks', 'status', 'userId']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.type is string && data.type.size() <= 100 &&
+             data.load is number &&
+             data.tasks is number &&
+             data.status is string && data.status.size() <= 100 &&
+             data.userId == request.auth.uid;
+    }
+
+    match /nodes/{nodeId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(nodeId) && isValidNode(incoming());
+      allow update: if isSignedIn() && isValidId(nodeId) && isValidNode(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+  }
+}

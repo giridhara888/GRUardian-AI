@@ -1,0 +1,6 @@
+{
+  "name": "Cloud Task Failure Prediction System",
+  "description": "Enterprise-grade cloud task failure prediction platform using GRU & ML Classifiers to optimize SLA and resource utilization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

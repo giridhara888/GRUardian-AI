@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "Prediction": {
+      "title": "Prediction Log",
+      "description": "Historical prediction logs",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string" },
+        "prediction": { "type": "string" },
+        "confidence": { "type": "string" },
+        "correct": { "type": "boolean" },
+        "userId": { "type": "string" }
+      },
+      "required": ["timestamp", "prediction", "confidence", "userId"]
+    },
+    "Metric": {
+      "title": "System Metric",
+      "description": "System performance metric snapshot",
+      "type": "object",
+      "properties": {
+        "time": { "type": "string" },
+        "api": { "type": "number" },
+        "db": { "type": "number" },
+        "logs": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["time", "api", "db", "logs", "userId"]
+    },
+    "Node": {
+      "title": "Node Status",
+      "description": "Current node status",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "load": { "type": "number" },
+        "tasks": { "type": "number" },
+        "status": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["name", "type", "load", "tasks", "status", "userId"]
+    }
+  },
+  "firestore": {
+    "predictions": {
+      "schema": { "$ref": "#/entities/Prediction" },
+      "description": "App predictions."
+    },
+    "metrics": {
+      "schema": { "$ref": "#/entities/Metric" },
+      "description": "App metrics."
+    },
+    "nodes": {
+      "schema": { "$ref": "#/entities/Node" },
+      "description": "App nodes."
+    }
+  }
+}
