@@ -1,14 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, Bot, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { GoogleGenAI } from '@google/genai';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export default function ChatAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([
-    { role: 'assistant', content: 'Hello! I am CloudPredict AI. How can I assist you with analyzing task failures or system behavior today?' }
+    { role: 'assistant', content: 'Hello! I am GRUardian AI. How can I assist you with analyzing task failures or system behavior today?' }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -32,14 +29,14 @@ export default function ChatAssistant() {
     setIsLoading(true);
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          { role: 'user', parts: [{ text: "You are CloudPredict AI Assistant, an expert in cloud task prediction and infrastructure modeling. Provide a helpful, concise answer to: " + userMsg }] }
-        ],
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMsg }),
       });
+      const data = await response.json();
 
-      const text = response.text || "I was unable to process your request at this time.";
+      const text = data.text || "I was unable to process your request at this time.";
       setMessages(prev => [...prev, { role: 'assistant', content: text }]);
     } catch (error) {
       console.error(error);
@@ -70,7 +67,7 @@ export default function ChatAssistant() {
               <Bot className="h-5 w-5 text-blue-500" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-200 text-sm">CloudPredict AI</h3>
+              <h3 className="font-bold text-slate-200 text-sm">GRUardian AI</h3>
               <p className="text-[10px] text-green-500 font-mono uppercase">Online</p>
             </div>
           </div>

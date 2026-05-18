@@ -73,5 +73,20 @@ service cloud.firestore {
       allow update: if isSignedIn() && isValidId(nodeId) && isValidNode(incoming()) && incoming().userId == existing().userId;
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
+
+    function isValidDataset(data) {
+      return data.keys().hasAll(['timestamp', 'userId', 'dataDump']) &&
+             data.timestamp is string && data.timestamp.size() <= 100 &&
+             data.userId == request.auth.uid &&
+             data.dataDump is string && data.dataDump.size() <= 20000;
+    }
+
+    match /datasets/{datasetId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(datasetId) && isValidDataset(incoming());
+      allow update: if isSignedIn() && isValidId(datasetId) && isValidDataset(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
   }
 }

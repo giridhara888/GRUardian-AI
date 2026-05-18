@@ -113,6 +113,104 @@ async function startServer() {
     }
   });
 
+  // AI-Powered Dataset Analysis (Power BI Blueprint & Inference)
+  app.post("/api/analyze-dataset", async (req, res) => {
+    const { dataDump } = req.body;
+    
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ status: "error", message: "GEMINI_API_KEY not configured" });
+    }
+
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const systemPrompt = `You are a machine learning data analyst and Power BI expert. 
+The user will provide a sample of evaluation metrics or dataset data. The data contains evaluation metrics for four pillars, specifically including Root Mean Square Error (RMSE), Accuracy (%), and Predicted operational states.
+
+### 2. Processing & Predictive Logic
+Analyze the data and determine a final status for the system deployment based on the metrics. Classify the final result into exactly one of these three categories:
+- SUCCESS: High accuracy, low RMSE, and strong pillar metrics.
+- RUN: Marginal metrics; the system can operate but requires monitoring.
+- FAIL: High RMSE, low accuracy, or critical failures in any of the four pillars.
+
+### 3. Power BI Dashboard Blueprint
+Provide a clear, human-readable blueprint and instructions for building a Power BI dashboard. Do not use complex raw JSON. Instead, use a structured list format explaining the visuals, data fields, and underlying DAX logic in plain English. Include:
+- KPI Cards: How to display overall Accuracy and RMSE (e.g., Target vs Actual).
+- 4-Quadrant Matrix: Mapping Data Protection, Site Recovery, Flexibility, and Network. Detail what goes in rows, columns, and values.
+- Prediction Gauge: A visual indicator showing the status (RUN, FAIL, SUCCESS). Define the target thresholds.
+- Essential DAX Measures: Provide 2-3 clear, readable DAX formulas needed for the dashboard.
+
+### 4. Automated Inference Generation
+Directly below the Power BI virtualization blueprint, you must generate a comprehensive "Final Inference Report". Use this exact format:
+
+#### FINAL INFERENCE REPORT
+- *Overall System Status*: [SUCCESS / RUN / FAIL]
+- *Key Driver*: [Identify which of the 4 pillars or metrics impacted the status the most]
+- *Data Protection Assessment*: [Brief analysis of data protection RMSE/Accuracy]
+- *Site Recovery Assessment*: [Brief analysis of recovery readiness]
+- *Flexibility & Network Analysis*: [Brief analysis of scalability and network metrics]
+- *Actionable Recommendation*: [Provide 1-2 concrete next steps based on the final status]
+
+Structure your response with distinct markdown headers for the Data Analysis, the Power BI Blueprint, and the Final Inference Report. Do not truncate the inference section.
+`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          { role: "user", parts: [{ text: `Here is the data snippet:\n\n${dataDump.substring(0, 3000)}` }] }
+        ],
+        config: {
+            systemInstruction: systemPrompt,
+        }
+      });
+
+      res.json({ status: "success", markdown: response.text });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  });
+
+  // AI-Powered Chat Assistant
+  app.post("/api/chat", async (req, res) => {
+    const { message } = req.body;
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ status: "error", message: "GEMINI_API_KEY not configured" });
+    }
+
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          { role: 'user', parts: [{ text: "You are GRUardian AI Assistant, an expert in cloud task prediction and infrastructure modeling. Provide a helpful, concise answer to: " + message }] }
+        ],
+      });
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

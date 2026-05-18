@@ -6,7 +6,6 @@ import Login from './pages/Login';
 import Datasets from './pages/Datasets';
 import Models from './pages/Models';
 import Predict from './pages/Predict';
-import Admin from './pages/Admin';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from 'sonner';
 
@@ -34,7 +33,6 @@ export default function App() {
             <Route path="datasets" element={<Datasets />} />
             <Route path="models" element={<Models />} />
             <Route path="predict" element={<Predict />} />
-            <Route path="admin" element={<ProtectedRoute requiredRole="admin"><Admin /></ProtectedRoute>} />
           </Route>
         </Routes>
       </BrowserRouter>

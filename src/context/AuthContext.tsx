@@ -28,7 +28,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
-          role: 'admin' // default to admin for demo purposes
+          role: 'user' // default to user
         });
       } else {
         setUser(null);

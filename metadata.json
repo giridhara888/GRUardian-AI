@@ -1,6 +1,6 @@
 {
-  "name": "Cloud Task Failure Prediction System",
+  "name": "GRUardian AI",
   "description": "Enterprise-grade cloud task failure prediction platform using GRU & ML Classifiers to optimize SLA and resource utilization.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

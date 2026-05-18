@@ -6,14 +6,17 @@ import {
   CheckCircle2, 
   Activity, 
   Cpu, 
-  MemoryStick
+  MemoryStick,
+  Server,
+  Database,
+  Network
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, writeBatch, getDocs } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 
@@ -21,6 +24,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<any>(null);
   const { user } = useAuth();
   const [nodes, setNodes] = useState<any[]>([]);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -121,6 +125,29 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-200">Host System Monitor</h1>
           <p className="mt-1 text-sm text-slate-500">Real-time local hardware tracking and task predictions.</p>
         </div>
+        <button
+          onClick={async () => {
+            if (!confirmClear) {
+              setConfirmClear(true);
+              setTimeout(() => setConfirmClear(false), 3000);
+              return;
+            }
+            try {
+              const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
+              const snap = await getDocs(q);
+              const batch = writeBatch(db);
+              snap.docs.forEach(doc => batch.delete(doc.ref));
+              await batch.commit();
+              toast.success('Task history cleared');
+              setConfirmClear(false);
+            } catch (err) {
+              toast.error('Failed to clear tasks');
+            }
+          }}
+          className={`px-4 py-2 ${confirmClear ? 'bg-red-600 text-white' : 'bg-red-600/10 text-red-500 hover:bg-red-600/20'} text-sm font-medium rounded-lg transition-colors border border-red-600/20`}
+        >
+          {confirmClear ? 'Click again to confirm' : 'Clear Task History'}
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -214,37 +241,79 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-[#111318] shadow-sm rounded-xl border border-slate-800 p-6 flex flex-col items-center justify-center">
-          <h3 className="text-lg font-medium text-slate-200 mb-6 w-full text-left">System Architecture Status</h3>
-          <div className="relative w-full h-64 flex items-center justify-center">
-            {/* Center Node */}
-            <div className="absolute z-10 w-16 h-16 bg-blue-600/20 border-2 border-blue-500 rounded-full flex flex-col items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-              <Activity className="h-6 w-6 text-blue-400" />
+        <div className="bg-gradient-to-br from-[#111318] to-[#0A0B0E] shadow-xl rounded-xl border border-slate-800/80 p-6 flex flex-col items-center justify-between relative overflow-hidden group">
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 mix-blend-overlay"></div>
+          <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/5 rounded-bl-full pointer-events-none"></div>
+          
+          <div className="w-full flex justify-between items-center mb-2 z-10">
+            <h3 className="text-lg font-semibold text-slate-200 flex items-center">
+               <Server className="h-4 w-4 mr-2 text-indigo-400" />
+               System Architecture Status
+            </h3>
+          </div>
+          <p className="text-xs text-slate-500 w-full text-left mb-6 font-mono z-10">Real-time topology & load distribution</p>
+
+          <div className="relative w-full flex-grow min-h-[260px] flex items-center justify-center z-10">
+            {/* Center Node (Core) */}
+            <div className="absolute z-20 w-20 h-20 bg-[#0A0B0E] border border-slate-700/80 rounded-full flex flex-col items-center justify-center shadow-[0_0_30px_rgba(79,70,229,0.3)]">
+               <div className="absolute inset-2 rounded-full border border-indigo-500/50 animate-ping opacity-20 duration-1000"></div>
+               <div className="absolute inset-0 rounded-full bg-indigo-500/10 animate-pulse"></div>
+               <Activity className="h-7 w-7 text-indigo-400" />
+               <span className="text-[9px] text-slate-400 uppercase tracking-widest mt-1 font-bold font-mono">Core</span>
             </div>
             
-            {/* Outline nodes positioned absolutely */}
-            {[
-              { pos: 'top-2 right-12', label: 'CPU', color: 'border-blue-500 text-blue-500', load: nodes[0] ? `${nodes[0].cpuLoad}%` : '0%' },
-              { pos: 'bottom-2 right-12', label: 'RAM', color: 'border-green-500 text-green-500', load: nodes[0] ? `${nodes[0].ramLoad}%` : '0%' },
-            ].map((n, i) => (
-               <div key={i} className={`absolute ${n.pos} flex flex-col items-center`}>
-                  <div className={`w-10 h-10 bg-slate-800/50 border-2 ${n.color} rounded-full flex items-center justify-center`}>
-                    <span className="text-[10px] font-bold">{n.load}</span>
-                  </div>
-                  <span className="text-[10px] font-mono mt-1 text-slate-400">{n.label}</span>
-               </div>
-            ))}
+            {(() => {
+              const cpuLoad = nodes[0] ? nodes[0].load || nodes[0].cpuLoad || 45 : 45;
+              const ramLoad = nodes[0] ? nodes[0].ramLoad || Math.floor(nodes[0].load * 0.9) || 62 : 62;
+              const diskLoad = nodes[0] ? nodes[0].diskReq || 35 : 35;
+              const netLoad = nodes[0] ? nodes[0].netReq || 58 : 58;
 
-            {/* SVG lines */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-30">
-               <line x1="50%" y1="50%" x2="70%" y2="20%" stroke="#3b82f6" strokeWidth="2" strokeDasharray="4 4"/>
-               <line x1="50%" y1="50%" x2="75%" y2="80%" stroke="#22c55e" strokeWidth="2" />
-            </svg>
+              const getStatusColor = (val: number) => val > 85 ? 'text-rose-500 border-rose-500/50 bg-rose-500/10 shadow-[0_0_15px_rgba(244,63,94,0.3)]' : val > 60 ? 'text-amber-500 border-amber-500/50 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.3)]';
+
+              const getLineColor = (val: number) => val > 85 ? '#f43f5e' : val > 60 ? '#f59e0b' : '#10b981';
+
+              const peripheralNodes = [
+                 { pos: 'top-2 right-6', label: 'CPU Cluster', val: cpuLoad, cx: "80%", cy: "15%", icon: Cpu },
+                 { pos: 'bottom-2 right-12', label: 'Memory', val: ramLoad, cx: "75%", cy: "85%", icon: MemoryStick },
+                 { pos: 'bottom-2 left-6', label: 'Storage Array', val: diskLoad, cx: "20%", cy: "85%", icon: Database },
+                 { pos: 'top-2 left-12', label: 'Network Edge', val: netLoad, cx: "25%", cy: "15%", icon: Network },
+              ];
+
+              return (
+                 <>
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+                     {peripheralNodes.map((pn, i) => (
+                        <g key={`line-group-${i}`}>
+                           <line x1="50%" y1="50%" x2={pn.cx} y2={pn.cy} stroke={getLineColor(pn.val)} strokeWidth="2" strokeDasharray="5 5" className="opacity-30" />
+                        </g>
+                     ))}
+                  </svg>
+
+                  {peripheralNodes.map((pn, i) => {
+                     const colorClass = getStatusColor(pn.val);
+                     const Icon = pn.icon;
+                     return (
+                        <div key={`node-${i}`} className={`absolute ${pn.pos} flex flex-col items-center z-10 hover:scale-110 transition-transform duration-300 cursor-default group/node`}>
+                           <div className={`w-14 h-14 rounded-full border-[1.5px] flex flex-col items-center justify-center backdrop-blur-md ${colorClass} relative`}>
+                             <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-current shadow-[0_0_5px_currentColor] animate-pulse"></div>
+                             <Icon className="w-4 h-4 mb-0.5 opacity-80" />
+                             <span className="text-[10px] font-bold font-mono tracking-tighter">{pn.val}%</span>
+                           </div>
+                           <div className="mt-2 bg-[#0A0B0E]/90 px-2.5 py-1 rounded border border-slate-700/50 backdrop-blur-md shadow-lg shadow-black/30 opacity-80 group-hover/node:opacity-100 transition-opacity whitespace-nowrap">
+                             <span className="text-[10px] font-mono text-slate-300 flex items-center">{pn.label}</span>
+                           </div>
+                        </div>
+                     )
+                  })}
+                 </>
+              );
+            })()}
           </div>
-          <div className="w-full flex justify-between mt-4">
-            <div className="flex items-center gap-2 text-xs text-slate-400"><span className="w-2 h-2 rounded-full bg-green-500"></span> 0-60%</div>
-            <div className="flex items-center gap-2 text-xs text-slate-400"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> 60-90%</div>
-            <div className="flex items-center gap-2 text-xs text-slate-400"><span className="w-2 h-2 rounded-full bg-red-500"></span> &gt;90%</div>
+
+          <div className="flex justify-between items-center mt-6 w-full px-4 py-3 bg-[#0A0B0E]/60 rounded-xl border border-slate-800/80 backdrop-blur-md z-10">
+            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded shadow-[0_0_5px_#10b981] bg-emerald-500"></span><span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">0-60%</span></div>
+            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded shadow-[0_0_5px_#f59e0b] bg-amber-500"></span><span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">60-85%</span></div>
+            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded shadow-[0_0_5px_#f43f5e] bg-rose-500"></span><span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">&gt;85%</span></div>
           </div>
         </div>
       </div>

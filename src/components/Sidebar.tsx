@@ -21,15 +21,11 @@ export default function Sidebar() {
     { name: 'Predict', href: '/predict', icon: ActivitySquare },
   ];
 
-  if (user?.role === 'admin') {
-    navItems.push({ name: 'Admin', href: '/admin', icon: ShieldAlert });
-  }
-
   return (
     <div className="w-64 bg-[#111318] flex flex-col hidden md:flex border-r border-slate-800">
       <div className="h-16 flex items-center px-6 border-b border-slate-800">
         <ActivitySquare className="h-6 w-6 text-blue-500 mr-2" />
-        <span className="font-bold text-lg tracking-tight">CloudPred<span className="text-blue-500">AI</span></span>
+        <span className="font-bold text-lg tracking-tight">GRUardian<span className="text-blue-500"> AI</span></span>
       </div>
       
       <div className="flex-1 overflow-y-auto py-4">

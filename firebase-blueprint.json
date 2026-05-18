@@ -39,6 +39,17 @@
         "userId": { "type": "string" }
       },
       "required": ["name", "type", "load", "tasks", "status", "userId"]
+    },
+    "Dataset": {
+      "title": "Dataset Log",
+      "description": "Log of uploaded dataset record",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string" },
+        "userId": { "type": "string" },
+        "dataDump": { "type": "string" }
+      },
+      "required": ["timestamp", "userId", "dataDump"]
     }
   },
   "firestore": {
@@ -53,6 +64,10 @@
     "nodes": {
       "schema": { "$ref": "#/entities/Node" },
       "description": "App nodes."
+    },
+    "datasets": {
+      "schema": { "$ref": "#/entities/Dataset" },
+      "description": "Dataset records"
     }
   }
 }
