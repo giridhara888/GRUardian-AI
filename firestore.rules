@@ -78,7 +78,7 @@ service cloud.firestore {
       return data.keys().hasAll(['timestamp', 'userId', 'dataDump']) &&
              data.timestamp is string && data.timestamp.size() <= 100 &&
              data.userId == request.auth.uid &&
-             data.dataDump is string && data.dataDump.size() <= 20000;
+             data.dataDump is string && data.dataDump.size() <= 1000000;
     }
 
     match /datasets/{datasetId} {

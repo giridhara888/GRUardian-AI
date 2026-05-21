@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UploadCloud, FileJson, CheckCircle, DatabaseZap, Clock } from 'lucide-react';
+import { UploadCloud, FileJson, CheckCircle, DatabaseZap, Clock, DownloadCloud } from 'lucide-react';
 import axios from 'axios';
 import Papa from 'papaparse';
 import Markdown from 'react-markdown';
@@ -18,6 +18,8 @@ export default function Datasets() {
   const [analyzing, setAnalyzing] = useState(false);
   const { user } = useAuth();
   
+  const [githubUrl, setGithubUrl] = useState('');
+
   const handleAIAnalysis = async (dataDump: string) => {
     setAnalyzing(true);
     try {
@@ -102,6 +104,91 @@ export default function Datasets() {
     });
   };
 
+  const handleGithubUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!githubUrl || !user) return;
+    
+    setUploading(true);
+    
+    try {
+      let url = githubUrl;
+      // Convert normal GitHub URL to raw URL if needed
+      if (url.includes('github.com') && url.includes('/blob/')) {
+        url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/');
+      }
+
+      const response = await fetch('/api/fetch-github', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url })
+      });
+      if (!response.ok) throw new Error('Failed to fetch file from GitHub');
+      
+      const csvText = await response.text();
+      
+      Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          const rows = results.data as any[];
+          const features = results.meta.fields?.length || 0;
+          
+          let nullCount = 0;
+          rows.forEach(r => {
+             Object.values(r).forEach(val => {
+               if (!val || val === '') nullCount++;
+             });
+          });
+
+          // Save first 100 rows to the datasets collection
+          let ingested = 0;
+          try {
+            const datasetsRef = collection(db, 'datasets');
+            for (let i = 0; i < Math.min(rows.length, 100); i++) {
+              const row = rows[i];
+              
+              await addDoc(datasetsRef, {
+                timestamp: new Date().toISOString(),
+                userId: user.uid,
+                dataDump: JSON.stringify(row)
+              });
+              ingested++;
+            }
+            toast.success(`Ingested ${ingested} dataset records to Firestore.`);
+          } catch (error) {
+             console.error("Firestore error:", error);
+             toast.error("Failed to ingest some or all records to database.");
+          }
+
+          setStats({
+            rows: rows.length,
+            features,
+            nullValues: nullCount,
+            memoryUsage: `~${(csvText.length / (1024 * 1024)).toFixed(2)} MB`,
+            sampleData: JSON.stringify(rows.slice(0, 50))
+          });
+          
+          setUploading(false);
+          setGithubUrl('');
+          
+          // Trigger AI Analysis
+          handleAIAnalysis(JSON.stringify(rows.slice(0, 50)));
+        },
+        error: (error) => {
+          console.error("Error parsing CSV:", error);
+          toast.error("Failed to parse CSV file");
+          setUploading(false);
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error("Error fetching dataset: Ensure the URL is accessible and valid.");
+      setUploading(false);
+    }
+  };
+
   const handleRetrain = async () => {
     setRetraining(true);
     toast.info("Initializing Cloud Retraining Pipeline...", { description: "Allocating GPU instances..."});
@@ -171,6 +258,32 @@ export default function Datasets() {
               </div>
             )}
           </form>
+
+          <div className="mt-8 pt-8 border-t border-slate-800">
+            <h3 className="text-sm font-medium text-slate-300 mb-4 flex items-center">
+              <DownloadCloud className="h-4 w-4 mr-2 text-indigo-400" />
+              Or import from GitHub
+            </h3>
+            <form onSubmit={handleGithubUpload} className="flex gap-3">
+              <input
+                type="url"
+                value={githubUrl}
+                onChange={(e) => setGithubUrl(e.target.value)}
+                placeholder="https://raw.githubusercontent.com/username/repo/main/data.csv"
+                className="flex-1 rounded-lg border border-slate-800 bg-[#0A0B0E] px-4 py-2 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono placeholder:text-slate-600"
+                required
+                disabled={uploading}
+              />
+              <button
+                type="submit"
+                disabled={uploading}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors flex items-center whitespace-nowrap shadow-lg shadow-indigo-600/20"
+              >
+                {uploading ? <Clock className="h-4 w-4 mr-2 animate-spin" /> : <DownloadCloud className="h-4 w-4 mr-2" />}
+                Import Dataset
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 

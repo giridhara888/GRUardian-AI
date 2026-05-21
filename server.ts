@@ -10,7 +10,7 @@ import os from "os";
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(cors());
   app.use(express.json());
@@ -205,6 +205,24 @@ Structure your response with distinct markdown headers for the Data Analysis, th
       });
 
       res.json({ text: response.text });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  });
+
+  // Proxy for GitHub raw files to avoid CORS issues
+  app.post("/api/fetch-github", async (req, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ status: "error", message: "URL is required" });
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        return res.status(response.status).json({ status: "error", message: `Failed to fetch from GitHub: ${response.statusText}` });
+      }
+      const text = await response.text();
+      res.send(text);
     } catch (error: any) {
       console.error(error);
       res.status(500).json({ status: "error", message: error.message });

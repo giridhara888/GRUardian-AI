@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, HardDrive, RefreshCcw, Activity, Server, AlertCircle } from 'lucide-react';
+import { Cpu, HardDrive, RefreshCcw, Activity, Server, AlertCircle, DownloadCloud, DatabaseZap } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { db } from '../lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import * as tf from '@tensorflow/tfjs';
 import { toast } from 'sonner';
+import Papa from 'papaparse';
 
 export default function Predict() {
   const [params, setParams] = useState({
@@ -20,6 +21,9 @@ export default function Predict() {
   const [prediction, setPrediction] = useState<any>(null);
   const [model, setModel] = useState<tf.LayersModel | null>(null);
   const [nodes, setNodes] = useState<any[]>([]);
+  const [githubUrl, setGithubUrl] = useState('');
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchResults, setBatchResults] = useState<any[]>([]);
   const { user } = useAuth();
   
   // Initialize and load/train the ML model
@@ -157,6 +161,88 @@ export default function Predict() {
     if (level === 'Critical') return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
     if (level === 'High' || level === 'Warning') return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
     return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+  };
+
+  const handleGithubPredict = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!model || !githubUrl) {
+      if (!model) toast.error("Model is still loading");
+      return;
+    }
+    setBatchLoading(true);
+    setBatchResults([]);
+
+    try {
+      let url = githubUrl;
+      // Convert normal GitHub URL to raw URL if needed
+      if (url.includes('github.com') && url.includes('/blob/')) {
+        url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/');
+      }
+
+      const response = await fetch('/api/fetch-github', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url })
+      });
+      if (!response.ok) throw new Error('Failed to fetch file from GitHub');
+      
+      const csvText = await response.text();
+      
+      Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const rows = results.data as any[];
+          if (rows.length === 0) {
+            toast.error("CSV is empty or could not be parsed.");
+            setBatchLoading(false);
+            return;
+          }
+
+          const predictions = rows.map((row) => {
+            const cpu = Number(row.cpuUsage) || Number(row.cpu) || 50;
+            const ram = Number(row.ramUsage) || Number(row.ram) || 50;
+            const disk = Number(row.diskIo) || Number(row.disk) || Number(row.diskIO) || 100;
+            const time = Number(row.timeInQueue) || Number(row.time) || Number(row.queue) || 50;
+            
+            const inputTensor = tf.tensor2d([[
+              cpu / 100, 
+              ram / 100, 
+              disk / 1000, 
+              time / 500
+            ]]);
+            
+            const predictionTensor = model.predict(inputTensor) as tf.Tensor;
+            const failProb = predictionTensor.dataSync()[0];
+            inputTensor.dispose();
+            predictionTensor.dispose();
+
+            const isDangerous = failProb > 0.6 || ((cpu > 80) && (ram > 85));
+            return {
+              id: Math.random().toString(36).substring(2, 9),
+              cpu, ram, disk, time,
+              failProb,
+              state: isDangerous ? 'FAIL' : 'SUCCESS',
+            };
+          });
+          
+          setBatchResults(predictions);
+          toast.success(`Generated ${predictions.length} predictions from GitHub Dataset`);
+          setBatchLoading(false);
+        },
+        error: (err) => {
+          console.error(err);
+          toast.error("Failed to parse CSV file");
+          setBatchLoading(false);
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error("Error fetching dataset: Ensure the URL is accessible and valid.");
+      setBatchLoading(false);
+    }
   };
 
   // Calculate overall system health
@@ -305,6 +391,78 @@ export default function Predict() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Batch GitHub Prediction Section */}
+      <div className="bg-[#111318] shadow-sm rounded-xl border border-slate-800 p-6 mt-8">
+        <h3 className="text-lg font-medium text-slate-200 mb-4 flex items-center">
+          <DownloadCloud className="h-5 w-5 mr-3 text-indigo-400" />
+          Batch Prediction via GitHub
+        </h3>
+        <p className="text-sm text-slate-500 mb-6">
+          Provide a GitHub raw URL to a CSV file to evaluate batch capacity planning and failure predictions. Ensure the CSV contains <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">cpuUsage</code>, <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">ramUsage</code>, <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">diskIo</code>, and <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">timeInQueue</code> columns.
+        </p>
+
+        <form onSubmit={handleGithubPredict} className="flex flex-col sm:flex-row gap-4 mb-6">
+          <input
+            type="url"
+            value={githubUrl}
+            onChange={(e) => setGithubUrl(e.target.value)}
+            placeholder="https://raw.githubusercontent.com/username/repo/main/data.csv"
+            className="flex-1 rounded-lg border border-slate-800 bg-[#0A0B0E] p-3 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+            required
+          />
+          <button
+            type="submit"
+            disabled={batchLoading}
+            className="flex-shrink-0 flex items-center justify-center px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition-colors border border-indigo-500/50 shadow-lg shadow-indigo-500/20"
+          >
+            {batchLoading ? <RefreshCcw className="h-4 w-4 mr-2 animate-spin" /> : <DatabaseZap className="h-4 w-4 mr-2" />}
+            Batch Predict
+          </button>
+        </form>
+
+        {batchResults.length > 0 && (
+          <div className="overflow-x-auto rounded-lg border border-slate-800 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <table className="min-w-full divide-y divide-slate-800">
+              <thead className="bg-[#16181d]">
+                <tr>
+                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">ID</th>
+                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">CPU / RAM Req.</th>
+                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Disk / Queue</th>
+                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Risk Level</th>
+                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Prediction</th>
+                </tr>
+              </thead>
+              <tbody className="bg-[#0A0B0E] divide-y divide-slate-800/50">
+                {batchResults.slice(0, 10).map((res) => (
+                  <tr key={res.id} className="hover:bg-slate-800/20 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-slate-500">#{res.id}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-300 font-medium">
+                       <span className={cn(res.cpu > 80 ? 'text-rose-400' : 'text-slate-300')}>{res.cpu}%</span> / <span className={cn(res.ram > 80 ? 'text-rose-400' : 'text-slate-300')}>{res.ram}%</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-400 font-mono text-xs">{res.disk} MB/s / {res.time} ms</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className={cn("px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider", res.state === 'SUCCESS' ? 'bg-emerald-900/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-900/10 text-rose-500 border border-rose-500/20')}>
+                        {res.state === 'SUCCESS' ? 'LOW' : 'CRITICAL'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className={cn("px-3 py-1.5 rounded text-xs font-bold tracking-widest", res.state === 'SUCCESS' ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10')}>
+                        {res.state}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {batchResults.length > 10 && (
+              <div className="bg-[#111318] px-6 py-3 border-t border-slate-800 text-xs text-center text-slate-500 font-medium tracking-wide">
+                Showing top 10 of {batchResults.length} predictions. Result array available in debug console.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
