@@ -9,7 +9,8 @@ import {
   MemoryStick,
   Server,
   Database,
-  Network
+  Network,
+  RefreshCcw
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -25,6 +26,24 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [nodes, setNodes] = useState<any[]>([]);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const response = await fetch('/api/metrics/nodes');
+      if (response.ok) {
+        const data = await response.json();
+        setNodes(data);
+        if (data.length > 0) {
+          const avgCpu = Math.round(data.reduce((acc: number, n: any) => acc + (n.cpuLoad || n.load), 0) / data.length);
+          const avgRam = Math.round(data.reduce((acc: number, n: any) => acc + (n.ramLoad || 0), 0) / data.length);
+          setStats((prev: any) => prev ? { ...prev, resourceUtilization: { cpu: avgCpu, ram: avgRam, avgSpikes: prev.resourceUtilization.avgSpikes } } : null);
+        }
+      }
+    } catch (err) {}
+    setTimeout(() => setRefreshing(false), 500);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -125,29 +144,39 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-200">Host System Monitor</h1>
           <p className="mt-1 text-sm text-slate-500">Real-time local hardware tracking and task predictions.</p>
         </div>
-        <button
-          onClick={async () => {
-            if (!confirmClear) {
-              setConfirmClear(true);
-              setTimeout(() => setConfirmClear(false), 3000);
-              return;
-            }
-            try {
-              const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
-              const snap = await getDocs(q);
-              const batch = writeBatch(db);
-              snap.docs.forEach(doc => batch.delete(doc.ref));
-              await batch.commit();
-              toast.success('Task history cleared');
-              setConfirmClear(false);
-            } catch (err) {
-              toast.error('Failed to clear tasks');
-            }
-          }}
-          className={`px-4 py-2 ${confirmClear ? 'bg-red-600 text-white' : 'bg-red-600/10 text-red-500 hover:bg-red-600/20'} text-sm font-medium rounded-lg transition-colors border border-red-600/20`}
-        >
-          {confirmClear ? 'Click again to confirm' : 'Clear Task History'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
+          >
+            <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={async () => {
+              if (!confirmClear) {
+                setConfirmClear(true);
+                setTimeout(() => setConfirmClear(false), 3000);
+                return;
+              }
+              try {
+                const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
+                const snap = await getDocs(q);
+                const batch = writeBatch(db);
+                snap.docs.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+                toast.success('Task history cleared');
+                setConfirmClear(false);
+              } catch (err) {
+                toast.error('Failed to clear tasks');
+              }
+            }}
+            className={`px-4 py-2 ${confirmClear ? 'bg-red-600 text-white' : 'bg-red-600/10 text-red-500 hover:bg-red-600/20'} text-sm font-medium rounded-lg transition-colors border border-red-600/20`}
+          >
+            {confirmClear ? 'Click again to confirm' : 'Clear Task History'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell
 } from 'recharts';
-import { Target, Zap, Activity, Download } from 'lucide-react';
+import { Target, Zap, Activity, Download, RefreshCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -11,7 +11,15 @@ import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 
 export default function Models() {
   const [data, setData] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    // Data is synced via onSnapshot, so we trigger a visual refresh to feel responsive
+    setData(null);
+    setTimeout(() => setRefreshing(false), 500);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -85,10 +93,20 @@ export default function Models() {
             Real-time monitoring and inference analytics for our proprietary Gated Recurrent Unit (GRU) neural network, trained specifically on cloud infrastructure metric anomalies.
           </p>
         </div>
-        <button onClick={handleDownloadReport} className="flex-shrink-0 flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold uppercase tracking-wider rounded-lg border border-blue-500/50 shadow-lg shadow-blue-500/20 transition-all duration-200 relative overflow-hidden group">
-          <div className="absolute inset-0 bg-white/10 w-full h-full transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></div>
-          <Download className="h-4 w-4 mr-2" /> Download Report
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex-shrink-0 flex items-center px-4 py-2.5 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
+          >
+            <RefreshCcw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button onClick={handleDownloadReport} className="flex-shrink-0 flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold uppercase tracking-wider rounded-lg border border-blue-500/50 shadow-lg shadow-blue-500/20 transition-all duration-200 relative overflow-hidden group">
+            <div className="absolute inset-0 bg-white/10 w-full h-full transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></div>
+            <Download className="h-4 w-4 mr-2" /> Download Report
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -8,23 +8,74 @@ import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import * as tf from '@tensorflow/tfjs';
 import { toast } from 'sonner';
 import Papa from 'papaparse';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function Predict() {
-  const [params, setParams] = useState({
-    cpuUsage: 85,
-    ramUsage: 78,
-    diskIo: 400,
-    timeInQueue: 120
+  const [params, setParams] = useState(() => {
+    const override = localStorage.getItem('overridePredictParams');
+    const suggested = localStorage.getItem('suggestedTaskParams');
+    if (override === 'true' && suggested) {
+      localStorage.removeItem('overridePredictParams');
+      return JSON.parse(suggested);
+    }
+    const saved = localStorage.getItem('predictParams');
+    if (saved) return JSON.parse(saved);
+    if (suggested) return JSON.parse(suggested);
+    return {
+      cpuUsage: 85,
+      ramUsage: 78,
+      diskIo: 400,
+      timeInQueue: 120
+    };
   });
 
   const [loading, setLoading] = useState(false);
-  const [prediction, setPrediction] = useState<any>(null);
+  const [prediction, setPrediction] = useState<any>(() => {
+    const saved = localStorage.getItem('predictResult');
+    if (saved) return JSON.parse(saved);
+    return null;
+  });
   const [model, setModel] = useState<tf.LayersModel | null>(null);
   const [nodes, setNodes] = useState<any[]>([]);
-  const [githubUrl, setGithubUrl] = useState('');
+  const [githubUrl, setGithubUrl] = useState(() => {
+    return localStorage.getItem('predictGithubUrl') || '';
+  });
   const [batchLoading, setBatchLoading] = useState(false);
-  const [batchResults, setBatchResults] = useState<any[]>([]);
+  const [batchResults, setBatchResults] = useState<any[]>(() => {
+    const saved = localStorage.getItem('predictBatchResults');
+    if (saved) return JSON.parse(saved);
+    return [];
+  });
+  const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
+  
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const response = await fetch('/api/metrics/nodes');
+      if (response.ok) {
+        const data = await response.json();
+        setNodes(data);
+      }
+    } catch (err) {}
+    setTimeout(() => setRefreshing(false), 500);
+  };
+  
+  useEffect(() => {
+    localStorage.setItem('predictParams', JSON.stringify(params));
+  }, [params]);
+
+  useEffect(() => {
+    if (prediction) localStorage.setItem('predictResult', JSON.stringify(prediction));
+  }, [prediction]);
+
+  useEffect(() => {
+    localStorage.setItem('predictGithubUrl', githubUrl);
+  }, [githubUrl]);
+
+  useEffect(() => {
+    if (batchResults.length > 0) localStorage.setItem('predictBatchResults', JSON.stringify(batchResults));
+  }, [batchResults]);
   
   // Initialize and load/train the ML model
   useEffect(() => {
@@ -251,9 +302,19 @@ export default function Predict() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-200">Real-time Task Prediction & System Health</h1>
-        <p className="mt-1 text-sm text-slate-500">Monitor live cluster capacity and predict if incoming tasks can be safely scheduled.</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-200">Real-time Task Prediction & System Health</h1>
+          <p className="mt-1 text-sm text-slate-500">Monitor live cluster capacity and predict if incoming tasks can be safely scheduled.</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
+        >
+          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
 
       {nodes.length > 0 && (
@@ -346,50 +407,66 @@ export default function Predict() {
           </button>
         </form>
 
-        <div className="bg-[#0A0B0E] shadow-sm rounded-xl border border-slate-800 p-6 flex flex-col justify-center relative overflow-hidden">
-          {!prediction ? (
-            <div className="text-center text-slate-500">
-              <Activity className="h-12 w-12 mx-auto mb-4 opacity-50 text-slate-600" />
-              <p>Awaiting parameters for capability evaluation.</p>
-            </div>
-          ) : (
-            <div className="space-y-6 z-10 w-full animate-in fade-in zoom-in duration-300">
-               <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Prediction</h4>
-                    <p className={cn("text-5xl font-bold mt-1", prediction.state === 'FAIL' ? 'text-red-500' : 'text-green-500')}>
-                      {prediction.state}
-                    </p>
-                  </div>
-                  <div className={cn("px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-widest", getRiskColor(prediction.riskLevel))}>
-                    {prediction.riskLevel} RISK
-                  </div>
-               </div>
-
-               <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-[#111318] p-4 rounded-lg border border-slate-800">
-                    <p className="text-xs text-slate-500 font-medium">Model Confidence</p>
-                    <p className="text-2xl font-semibold text-slate-200 mt-1">{(prediction.confidence * 100).toFixed(1)}%</p>
-                  </div>
-                  <div className={cn("p-4 rounded-lg border", prediction.isSystemCapable ? "bg-emerald-900/10 border-emerald-900/30" : "bg-rose-900/10 border-rose-900/30")}>
-                    <p className="text-xs text-slate-500 font-medium">System Capacity</p>
-                    <div className="flex items-center gap-2 mt-1">
-                       {prediction.isSystemCapable ? <Server className="h-5 w-5 text-emerald-500" /> : <AlertCircle className="h-5 w-5 text-rose-500" />}
-                       <p className={cn("text-lg font-semibold", prediction.isSystemCapable ? "text-emerald-500" : "text-rose-500")}>
-                         {prediction.isSystemCapable ? 'Available' : 'Insufficient'}
-                       </p>
+        <div className="bg-[#0A0B0E] shadow-sm rounded-xl border border-slate-800 p-6 flex flex-col justify-center relative overflow-hidden min-h-[300px]">
+          <AnimatePresence mode="wait">
+            {!prediction ? (
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+                className="text-center text-slate-500 absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+              >
+                <Activity className="h-12 w-12 mx-auto mb-4 opacity-50 text-slate-600" />
+                <p>Awaiting parameters for capability evaluation.</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="prediction"
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                transition={{ duration: 0.4, type: "spring", bounce: 0.25 }}
+                className="space-y-6 z-10 w-full"
+              >
+                 <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Prediction</h4>
+                      <p className={cn("text-5xl font-bold mt-1", prediction.state === 'FAIL' ? 'text-red-500' : 'text-green-500')}>
+                        {prediction.state}
+                      </p>
                     </div>
-                  </div>
-               </div>
+                    <div className={cn("px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-widest", getRiskColor(prediction.riskLevel))}>
+                      {prediction.riskLevel} RISK
+                    </div>
+                 </div>
 
-               <div className={cn("border rounded-lg p-4", prediction.isSystemCapable && prediction.state === 'SUCCESS' ? "bg-emerald-900/10 border-emerald-900/50" : "bg-[#1a1c22] border-slate-800/50")}>
-                  <h5 className={cn("text-sm font-semibold mb-1", prediction.isSystemCapable && prediction.state === 'SUCCESS' ? "text-emerald-500" : "text-yellow-500")}>AI Scheduling Engine</h5>
-                  <p className="text-sm text-slate-400 leading-relaxed font-medium">
-                    {prediction.suggestion}
-                  </p>
-               </div>
-            </div>
-          )}
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-[#111318] p-4 rounded-lg border border-slate-800">
+                      <p className="text-xs text-slate-500 font-medium">Model Confidence</p>
+                      <p className="text-2xl font-semibold text-slate-200 mt-1">{(prediction.confidence * 100).toFixed(1)}%</p>
+                    </div>
+                    <div className={cn("p-4 rounded-lg border", prediction.isSystemCapable ? "bg-emerald-900/10 border-emerald-900/30" : "bg-rose-900/10 border-rose-900/30")}>
+                      <p className="text-xs text-slate-500 font-medium">System Capacity</p>
+                      <div className="flex items-center gap-2 mt-1">
+                         {prediction.isSystemCapable ? <Server className="h-5 w-5 text-emerald-500" /> : <AlertCircle className="h-5 w-5 text-rose-500" />}
+                         <p className={cn("text-lg font-semibold", prediction.isSystemCapable ? "text-emerald-500" : "text-rose-500")}>
+                           {prediction.isSystemCapable ? 'Available' : 'Insufficient'}
+                         </p>
+                      </div>
+                    </div>
+                 </div>
+
+                 <div className={cn("border rounded-lg p-4", prediction.isSystemCapable && prediction.state === 'SUCCESS' ? "bg-emerald-900/10 border-emerald-900/50" : "bg-[#1a1c22] border-slate-800/50")}>
+                    <h5 className={cn("text-sm font-semibold mb-1", prediction.isSystemCapable && prediction.state === 'SUCCESS' ? "text-emerald-500" : "text-yellow-500")}>AI Scheduling Engine</h5>
+                    <p className="text-sm text-slate-400 leading-relaxed font-medium">
+                      {prediction.suggestion}
+                    </p>
+                 </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 

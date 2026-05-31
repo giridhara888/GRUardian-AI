@@ -182,32 +182,14 @@ Structure your response with distinct markdown headers for the Data Analysis, th
   // AI-Powered Chat Assistant
   app.post("/api/chat", async (req, res) => {
     const { message } = req.body;
-
-    console.log("[/api/chat] Received message:", message);
-
-    // Validate that a message was actually provided
-    if (!message || typeof message !== "string" || message.trim() === "") {
-      console.warn("[/api/chat] Request rejected: missing or empty message body");
-      return res.status(400).json({ status: "error", message: "Request body must include a non-empty 'message' string" });
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ status: "error", message: "GEMINI_API_KEY not configured" });
     }
-
-    // Check API key presence and basic shape before making any network call
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.error("[/api/chat] GEMINI_API_KEY is not set in environment variables");
-      return res.status(500).json({ status: "error", message: "GEMINI_API_KEY is not configured on the server" });
-    }
-    if (apiKey.trim().length < 10) {
-      console.error("[/api/chat] GEMINI_API_KEY appears invalid (too short):", apiKey.trim().length, "chars");
-      return res.status(500).json({ status: "error", message: "GEMINI_API_KEY appears to be invalid (too short)" });
-    }
-    console.log("[/api/chat] GEMINI_API_KEY is present, length:", apiKey.length);
 
     try {
-      console.log("[/api/chat] Initialising GoogleGenAI client...");
       const { GoogleGenAI } = await import("@google/genai");
       const ai = new GoogleGenAI({
-        apiKey,
+        apiKey: process.env.GEMINI_API_KEY,
         httpOptions: {
           headers: {
             'User-Agent': 'aistudio-build',
@@ -215,7 +197,6 @@ Structure your response with distinct markdown headers for the Data Analysis, th
         }
       });
 
-      console.log("[/api/chat] Sending request to Gemini API (model: gemini-2.5-flash)...");
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: [
@@ -223,23 +204,10 @@ Structure your response with distinct markdown headers for the Data Analysis, th
         ],
       });
 
-      console.log("[/api/chat] Gemini API responded successfully");
       res.json({ text: response.text });
     } catch (error: any) {
-      // Log the full error object so Railway's log viewer shows all available detail
-      console.error("[/api/chat] Error calling Gemini API:", error);
-      console.error("[/api/chat] Error name:", error?.name);
-      console.error("[/api/chat] Error message:", error?.message);
-      console.error("[/api/chat] Error status:", error?.status ?? error?.statusCode ?? "n/a");
-      console.error("[/api/chat] Error stack:", error?.stack);
-
-      const statusCode = error?.status ?? error?.statusCode ?? 500;
-      res.status(typeof statusCode === "number" ? statusCode : 500).json({
-        status: "error",
-        message: error?.message ?? "Unknown error from Gemini API",
-        errorName: error?.name ?? "UnknownError",
-        errorStatus: error?.status ?? error?.statusCode ?? null,
-      });
+      console.error(error);
+      res.status(500).json({ status: "error", message: error.message });
     }
   });
 

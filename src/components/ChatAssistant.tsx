@@ -36,8 +36,12 @@ export default function ChatAssistant() {
       });
       const data = await response.json();
 
-      const text = data.text || "I was unable to process your request at this time.";
-      setMessages(prev => [...prev, { role: 'assistant', content: text }]);
+      if (data.status === 'error') {
+        setMessages(prev => [...prev, { role: 'assistant', content: `**Error**: ${data.message || 'I was unable to process your request at this time.'}` }]);
+      } else {
+        const text = data.text || "I was unable to process your request at this time.";
+        setMessages(prev => [...prev, { role: 'assistant', content: text }]);
+      }
     } catch (error) {
       console.error(error);
       setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I am having trouble connecting to my servers right now." }]);

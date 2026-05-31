@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { UploadCloud, FileJson, CheckCircle, DatabaseZap, Clock, DownloadCloud } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { UploadCloud, FileJson, CheckCircle, DatabaseZap, Clock, DownloadCloud, RefreshCcw } from 'lucide-react';
 import axios from 'axios';
 import Papa from 'papaparse';
 import Markdown from 'react-markdown';
@@ -13,12 +13,43 @@ export default function Datasets() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [retraining, setRetraining] = useState(false);
-  const [stats, setStats] = useState<any>(null);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [stats, setStats] = useState<any>(() => {
+    const saved = localStorage.getItem('datasetStats');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(() => {
+    return localStorage.getItem('datasetAiAnalysis') || null;
+  });
   const [analyzing, setAnalyzing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
   
-  const [githubUrl, setGithubUrl] = useState('');
+  const [githubUrl, setGithubUrl] = useState(() => {
+    return localStorage.getItem('datasetGithubUrl') || '';
+  });
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setStats(null);
+    setAiAnalysis(null);
+    setGithubUrl('');
+    localStorage.removeItem('datasetStats');
+    localStorage.removeItem('datasetAiAnalysis');
+    localStorage.removeItem('datasetGithubUrl');
+    setTimeout(() => setRefreshing(false), 500);
+  };
+
+  useEffect(() => {
+    if (stats) localStorage.setItem('datasetStats', JSON.stringify(stats));
+  }, [stats]);
+
+  useEffect(() => {
+    if (aiAnalysis) localStorage.setItem('datasetAiAnalysis', aiAnalysis);
+  }, [aiAnalysis]);
+
+  useEffect(() => {
+    localStorage.setItem('datasetGithubUrl', githubUrl);
+  }, [githubUrl]);
 
   const handleAIAnalysis = async (dataDump: string) => {
     setAnalyzing(true);
@@ -56,11 +87,35 @@ export default function Datasets() {
         const features = results.meta.fields?.length || 0;
         
         let nullCount = 0;
+        let avgCpu = 0, avgRam = 0, avgDisk = 0, avgTime = 0;
+        let cpuItems = 0, ramItems = 0, diskItems = 0, timeItems = 0;
+
         rows.forEach(r => {
-           Object.values(r).forEach(val => {
-             if (!val || val === '') nullCount++;
+           Object.entries(r).forEach(([key, val]) => {
+             if (!val || val === '') {
+               nullCount++;
+               return;
+             }
+             const numVal = parseFloat(val as string);
+             if (!isNaN(numVal)) {
+               const lowerKey = key.toLowerCase();
+               if (lowerKey.includes('cpu')) { avgCpu += numVal; cpuItems++; }
+               else if (lowerKey.includes('ram') || lowerKey.includes('mem')) { avgRam += numVal; ramItems++; }
+               else if (lowerKey.includes('disk') || lowerKey.includes('io')) { avgDisk += numVal; diskItems++; }
+               else if (lowerKey.includes('time') || lowerKey.includes('queue')) { avgTime += numVal; timeItems++; }
+             }
            });
         });
+
+        // Store recommended params in local storage to be used in Predict
+        const suggestedParams = {
+          cpuUsage: cpuItems > 0 ? Math.min(100, Math.round(avgCpu / cpuItems)) : 45,
+          ramUsage: ramItems > 0 ? Math.min(100, Math.round(avgRam / ramItems)) : 50,
+          diskIo: diskItems > 0 ? Math.round(avgDisk / diskItems) : 250,
+          timeInQueue: timeItems > 0 ? Math.round(avgTime / timeItems) : 80
+        };
+        localStorage.setItem('suggestedTaskParams', JSON.stringify(suggestedParams));
+        localStorage.setItem('overridePredictParams', 'true');
 
         // Save first 100 rows to the datasets collection
         let ingested = 0;
@@ -136,11 +191,35 @@ export default function Datasets() {
           const features = results.meta.fields?.length || 0;
           
           let nullCount = 0;
+          let avgCpu = 0, avgRam = 0, avgDisk = 0, avgTime = 0;
+          let cpuItems = 0, ramItems = 0, diskItems = 0, timeItems = 0;
+
           rows.forEach(r => {
-             Object.values(r).forEach(val => {
-               if (!val || val === '') nullCount++;
+             Object.entries(r).forEach(([key, val]) => {
+               if (!val || val === '') {
+                 nullCount++;
+                 return;
+               }
+               const numVal = parseFloat(val as string);
+               if (!isNaN(numVal)) {
+                 const lowerKey = key.toLowerCase();
+                 if (lowerKey.includes('cpu')) { avgCpu += numVal; cpuItems++; }
+                 else if (lowerKey.includes('ram') || lowerKey.includes('mem')) { avgRam += numVal; ramItems++; }
+                 else if (lowerKey.includes('disk') || lowerKey.includes('io')) { avgDisk += numVal; diskItems++; }
+                 else if (lowerKey.includes('time') || lowerKey.includes('queue')) { avgTime += numVal; timeItems++; }
+               }
              });
           });
+
+          // Store recommended params in local storage to be used in Predict
+          const suggestedParams = {
+            cpuUsage: cpuItems > 0 ? Math.min(100, Math.round(avgCpu / cpuItems)) : 45,
+            ramUsage: ramItems > 0 ? Math.min(100, Math.round(avgRam / ramItems)) : 50,
+            diskIo: diskItems > 0 ? Math.round(avgDisk / diskItems) : 250,
+            timeInQueue: timeItems > 0 ? Math.round(avgTime / timeItems) : 80
+          };
+          localStorage.setItem('suggestedTaskParams', JSON.stringify(suggestedParams));
+          localStorage.setItem('overridePredictParams', 'true');
 
           // Save first 100 rows to the datasets collection
           let ingested = 0;
@@ -208,9 +287,19 @@ export default function Datasets() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-200">Dataset Management</h1>
-        <p className="mt-1 text-sm text-slate-500">Upload Google Cluster Trace data and preprocess for ML training.</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-200">Dataset Management</h1>
+          <p className="mt-1 text-sm text-slate-500">Upload Google Cluster Trace data and preprocess for ML training.</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
+        >
+          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
 
       <div className="bg-[#111318] shadow-sm rounded-xl border border-slate-800 p-8">
