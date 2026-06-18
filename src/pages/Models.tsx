@@ -126,11 +126,23 @@ export default function Models() {
               Our deep learning model is analyzing telemetry packets in real-time, delivering predictive insights before failure events occur.
             </p>
             
-            <div className="mt-8 pt-6 border-t border-slate-800 w-full flex justify-center">
-              <div className="inline-flex flex-col items-center px-6 py-3 bg-[#0A0B0E] text-blue-400 rounded-xl border border-slate-800 shadow-inner">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Live Accuracy</span>
-                <span className="text-3xl font-mono tracking-tight glow-text-blue">
-                  {(data.metrics[0]?.accuracy * 100).toFixed(2)}%
+            <div className="mt-8 pt-6 border-t border-slate-800 w-full grid grid-cols-3 gap-3">
+              <div className="flex flex-col items-center p-3 bg-[#0A0B0E] rounded-xl border border-slate-800 shadow-inner">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Accuracy</span>
+                <span className="text-xl font-mono tracking-tight text-blue-400 glow-text-blue">
+                  {(data.metrics[0]?.accuracy * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex flex-col items-center p-3 bg-[#0A0B0E] rounded-xl border border-slate-800 shadow-inner">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Precision</span>
+                <span className="text-xl font-mono tracking-tight text-indigo-400">
+                  {(data.metrics[0]?.precision * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex flex-col items-center p-3 bg-[#0A0B0E] rounded-xl border border-slate-800 shadow-inner">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Recall</span>
+                <span className="text-xl font-mono tracking-tight text-purple-400">
+                  {(data.metrics[0]?.recall * 100).toFixed(1)}%
                 </span>
               </div>
             </div>

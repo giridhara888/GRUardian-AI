@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UploadCloud, FileJson, CheckCircle, DatabaseZap, Clock, DownloadCloud, RefreshCcw } from 'lucide-react';
+import { UploadCloud, FileJson, CheckCircle, DatabaseZap, Clock, DownloadCloud, RefreshCcw, Download } from 'lucide-react';
 import axios from 'axios';
 import Papa from 'papaparse';
 import Markdown from 'react-markdown';
@@ -22,6 +22,9 @@ export default function Datasets() {
   });
   const [analyzing, setAnalyzing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [imputationStrategy, setImputationStrategy] = useState('mean');
+  const [normalizationStrategy, setNormalizationStrategy] = useState('min-max');
+  const [cleanedCsv, setCleanedCsv] = useState<string | null>(null);
   const { user } = useAuth();
   
   const [githubUrl, setGithubUrl] = useState(() => {
@@ -33,6 +36,7 @@ export default function Datasets() {
     setStats(null);
     setAiAnalysis(null);
     setGithubUrl('');
+    setCleanedCsv(null);
     localStorage.removeItem('datasetStats');
     localStorage.removeItem('datasetAiAnalysis');
     localStorage.removeItem('datasetGithubUrl');
@@ -73,6 +77,125 @@ export default function Datasets() {
     }
   };
 
+  const processDataset = async (originalRows: any[], features: number, rawSizeMb: string) => {
+    let nullCount = 0;
+    let avgCpu = 0, avgRam = 0, avgDisk = 0, avgTime = 0;
+    let cpuItems = 0, ramItems = 0, diskItems = 0, timeItems = 0;
+
+    // Pass 1: Compute stats for imputation & normalization
+    const colStats: Record<string, { sum: number, count: number, min: number, max: number, values: number[] }> = {};
+    
+    originalRows.forEach(r => {
+       Object.entries(r).forEach(([key, val]) => {
+         const isNull = !val || val === '';
+         if (isNull) nullCount++;
+         const numVal = parseFloat(val as string);
+         if (!isNaN(numVal)) {
+           if(!colStats[key]) colStats[key] = { sum: 0, count: 0, min: Infinity, max: -Infinity, values: [] };
+           colStats[key].sum += numVal;
+           colStats[key].count++;
+           colStats[key].min = Math.min(colStats[key].min, numVal);
+           colStats[key].max = Math.max(colStats[key].max, numVal);
+           colStats[key].values.push(numVal);
+         }
+       });
+    });
+
+    const colMods: Record<string, { mean: number, std: number, median: number }> = {};
+    Object.keys(colStats).forEach(key => {
+      const stats = colStats[key];
+      const mean = stats.sum / stats.count;
+      const variance = stats.values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / stats.count;
+      const std = Math.sqrt(variance);
+      const sorted = [...stats.values].sort((a,b) => a-b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      colMods[key] = { mean, std, median };
+    });
+
+    // Pass 2: Clean, Impute, Normalize
+    let processedRows = originalRows.map(r => {
+       const newRow: any = { ...r };
+       let hasNull = false;
+       Object.entries(r).forEach(([key, val]) => {
+         const isNull = !val || val === '';
+         if (isNull) hasNull = true;
+         
+         let numVal = parseFloat(val as string);
+         if (isNaN(numVal) || isNull) {
+            if (imputationStrategy === 'mean' && colMods[key]) numVal = colMods[key].mean;
+            else if (imputationStrategy === 'median' && colMods[key]) numVal = colMods[key].median;
+            else if (imputationStrategy === 'zero') numVal = 0;
+         }
+
+         if (!isNaN(numVal) && colMods[key]) {
+            if (normalizationStrategy === 'min-max' && colStats[key].max !== colStats[key].min) {
+               numVal = (numVal - colStats[key].min) / (colStats[key].max - colStats[key].min);
+            } else if (normalizationStrategy === 'z-score' && colMods[key].std !== 0) {
+               numVal = (numVal - colMods[key].mean) / colMods[key].std;
+            }
+            newRow[key] = Number.isInteger(numVal) ? numVal.toString() : numVal.toFixed(4);
+         }
+         
+         const finalVal = parseFloat(newRow[key]);
+         if (!isNaN(finalVal)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('cpu')) { avgCpu += finalVal; cpuItems++; }
+            else if (lowerKey.includes('ram') || lowerKey.includes('mem')) { avgRam += finalVal; ramItems++; }
+            else if (lowerKey.includes('disk') || lowerKey.includes('io')) { avgDisk += finalVal; diskItems++; }
+            else if (lowerKey.includes('time') || lowerKey.includes('queue')) { avgTime += finalVal; timeItems++; }
+         }
+       });
+       
+       return (imputationStrategy === 'drop' && hasNull) ? null : newRow;
+    }).filter(r => r !== null);
+
+    const targetAvgCpu = cpuItems > 0 ? (normalizationStrategy !== 'none' ? Math.round(avgCpu / cpuItems * 100) : Math.round(avgCpu / cpuItems)) : 45;
+    const targetAvgRam = ramItems > 0 ? (normalizationStrategy !== 'none' ? Math.round(avgRam / ramItems * 100) : Math.round(avgRam / ramItems)) : 50;
+
+    const suggestedParams = {
+      cpuUsage: Math.min(100, Math.max(0, targetAvgCpu)),
+      ramUsage: Math.min(100, Math.max(0, targetAvgRam)),
+      diskIo: diskItems > 0 ? Math.round(avgDisk / diskItems) : 250,
+      timeInQueue: timeItems > 0 ? Math.round(avgTime / timeItems) : 80
+    };
+    localStorage.setItem('suggestedTaskParams', JSON.stringify(suggestedParams));
+    localStorage.setItem('overridePredictParams', 'true');
+
+    // Save first 100 rows to the datasets collection
+    let ingested = 0;
+    try {
+      const datasetsRef = collection(db, 'datasets');
+      for (let i = 0; i < Math.min(processedRows.length, 100); i++) {
+        await addDoc(datasetsRef, {
+          timestamp: new Date().toISOString(),
+          userId: user?.uid || 'anonymous',
+          dataDump: JSON.stringify(processedRows[i])
+        });
+        ingested++;
+      }
+      toast.success(`Processed & Ingested ${ingested} records.`);
+    } catch (error) {
+       toast.error("Failed to ingest records to database.");
+    }
+
+    setCleanedCsv(Papa.unparse(processedRows));
+
+    setStats({
+      rows: processedRows.length,
+      features,
+      nullValues: nullCount,
+      memoryUsage: `${rawSizeMb} MB`,
+      sampleData: JSON.stringify(processedRows.slice(0, 50))
+    });
+    
+    setUploading(false);
+    setFile(null);
+    setGithubUrl('');
+    
+    // Trigger AI Analysis on processed data
+    handleAIAnalysis(JSON.stringify(processedRows.slice(0, 50)));
+  };
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || !user) return;
@@ -85,71 +208,8 @@ export default function Datasets() {
       complete: async (results) => {
         const rows = results.data as any[];
         const features = results.meta.fields?.length || 0;
-        
-        let nullCount = 0;
-        let avgCpu = 0, avgRam = 0, avgDisk = 0, avgTime = 0;
-        let cpuItems = 0, ramItems = 0, diskItems = 0, timeItems = 0;
-
-        rows.forEach(r => {
-           Object.entries(r).forEach(([key, val]) => {
-             if (!val || val === '') {
-               nullCount++;
-               return;
-             }
-             const numVal = parseFloat(val as string);
-             if (!isNaN(numVal)) {
-               const lowerKey = key.toLowerCase();
-               if (lowerKey.includes('cpu')) { avgCpu += numVal; cpuItems++; }
-               else if (lowerKey.includes('ram') || lowerKey.includes('mem')) { avgRam += numVal; ramItems++; }
-               else if (lowerKey.includes('disk') || lowerKey.includes('io')) { avgDisk += numVal; diskItems++; }
-               else if (lowerKey.includes('time') || lowerKey.includes('queue')) { avgTime += numVal; timeItems++; }
-             }
-           });
-        });
-
-        // Store recommended params in local storage to be used in Predict
-        const suggestedParams = {
-          cpuUsage: cpuItems > 0 ? Math.min(100, Math.round(avgCpu / cpuItems)) : 45,
-          ramUsage: ramItems > 0 ? Math.min(100, Math.round(avgRam / ramItems)) : 50,
-          diskIo: diskItems > 0 ? Math.round(avgDisk / diskItems) : 250,
-          timeInQueue: timeItems > 0 ? Math.round(avgTime / timeItems) : 80
-        };
-        localStorage.setItem('suggestedTaskParams', JSON.stringify(suggestedParams));
-        localStorage.setItem('overridePredictParams', 'true');
-
-        // Save first 100 rows to the datasets collection
-        let ingested = 0;
-        try {
-          const datasetsRef = collection(db, 'datasets');
-          for (let i = 0; i < Math.min(rows.length, 100); i++) {
-            const row = rows[i];
-            
-            await addDoc(datasetsRef, {
-              timestamp: new Date().toISOString(),
-              userId: user.uid,
-              dataDump: JSON.stringify(row)
-            });
-            ingested++;
-          }
-          toast.success(`Ingested ${ingested} dataset records to Firestore.`);
-        } catch (error) {
-           console.error("Firestore error:", error);
-           toast.error("Failed to ingest some or all records to database.");
-        }
-
-        setStats({
-          rows: rows.length,
-          features,
-          nullValues: nullCount,
-          memoryUsage: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-          sampleData: JSON.stringify(rows.slice(0, 50))
-        });
-        
-        setUploading(false);
-        setFile(null);
-        
-        // Trigger AI Analysis
-        handleAIAnalysis(JSON.stringify(rows.slice(0, 50)));
+        const rawSizeMb = (file.size / (1024 * 1024)).toFixed(2);
+        await processDataset(rows, features, rawSizeMb);
       },
       error: (error) => {
         console.error("Error parsing CSV:", error);
@@ -189,71 +249,8 @@ export default function Datasets() {
         complete: async (results) => {
           const rows = results.data as any[];
           const features = results.meta.fields?.length || 0;
-          
-          let nullCount = 0;
-          let avgCpu = 0, avgRam = 0, avgDisk = 0, avgTime = 0;
-          let cpuItems = 0, ramItems = 0, diskItems = 0, timeItems = 0;
-
-          rows.forEach(r => {
-             Object.entries(r).forEach(([key, val]) => {
-               if (!val || val === '') {
-                 nullCount++;
-                 return;
-               }
-               const numVal = parseFloat(val as string);
-               if (!isNaN(numVal)) {
-                 const lowerKey = key.toLowerCase();
-                 if (lowerKey.includes('cpu')) { avgCpu += numVal; cpuItems++; }
-                 else if (lowerKey.includes('ram') || lowerKey.includes('mem')) { avgRam += numVal; ramItems++; }
-                 else if (lowerKey.includes('disk') || lowerKey.includes('io')) { avgDisk += numVal; diskItems++; }
-                 else if (lowerKey.includes('time') || lowerKey.includes('queue')) { avgTime += numVal; timeItems++; }
-               }
-             });
-          });
-
-          // Store recommended params in local storage to be used in Predict
-          const suggestedParams = {
-            cpuUsage: cpuItems > 0 ? Math.min(100, Math.round(avgCpu / cpuItems)) : 45,
-            ramUsage: ramItems > 0 ? Math.min(100, Math.round(avgRam / ramItems)) : 50,
-            diskIo: diskItems > 0 ? Math.round(avgDisk / diskItems) : 250,
-            timeInQueue: timeItems > 0 ? Math.round(avgTime / timeItems) : 80
-          };
-          localStorage.setItem('suggestedTaskParams', JSON.stringify(suggestedParams));
-          localStorage.setItem('overridePredictParams', 'true');
-
-          // Save first 100 rows to the datasets collection
-          let ingested = 0;
-          try {
-            const datasetsRef = collection(db, 'datasets');
-            for (let i = 0; i < Math.min(rows.length, 100); i++) {
-              const row = rows[i];
-              
-              await addDoc(datasetsRef, {
-                timestamp: new Date().toISOString(),
-                userId: user.uid,
-                dataDump: JSON.stringify(row)
-              });
-              ingested++;
-            }
-            toast.success(`Ingested ${ingested} dataset records to Firestore.`);
-          } catch (error) {
-             console.error("Firestore error:", error);
-             toast.error("Failed to ingest some or all records to database.");
-          }
-
-          setStats({
-            rows: rows.length,
-            features,
-            nullValues: nullCount,
-            memoryUsage: `~${(csvText.length / (1024 * 1024)).toFixed(2)} MB`,
-            sampleData: JSON.stringify(rows.slice(0, 50))
-          });
-          
-          setUploading(false);
-          setGithubUrl('');
-          
-          // Trigger AI Analysis
-          handleAIAnalysis(JSON.stringify(rows.slice(0, 50)));
+          const rawSizeMb = (csvText.length / (1024 * 1024)).toFixed(2);
+          await processDataset(rows, features, rawSizeMb);
         },
         error: (error) => {
           console.error("Error parsing CSV:", error);
@@ -266,6 +263,18 @@ export default function Datasets() {
       toast.error("Error fetching dataset: Ensure the URL is accessible and valid.");
       setUploading(false);
     }
+  };
+
+  const handleDownload = () => {
+    if (!cleanedCsv) return;
+    const blob = new Blob([cleanedCsv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', 'cleaned_dataset.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleRetrain = async () => {
@@ -303,6 +312,37 @@ export default function Datasets() {
       </div>
 
       <div className="bg-[#111318] shadow-sm rounded-xl border border-slate-800 p-8">
+        <div className="max-w-xl mx-auto mb-8">
+          <h3 className="text-lg font-medium text-slate-200 mb-4 border-b border-slate-800 pb-2">Pre-Processing Pipeline</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">Imputation Strategy</label>
+              <select 
+                value={imputationStrategy}
+                onChange={(e) => setImputationStrategy(e.target.value)}
+                className="w-full bg-[#0A0B0E] border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="mean">Mean Substitution</option>
+                <option value="median">Median Substitution</option>
+                <option value="zero">Zero Substitution</option>
+                <option value="drop">Drop Missing Rows</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">Normalization Strategy</label>
+              <select 
+                value={normalizationStrategy}
+                onChange={(e) => setNormalizationStrategy(e.target.value)}
+                className="w-full bg-[#0A0B0E] border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="none">No Normalization</option>
+                <option value="min-max">Min-Max Scaling</option>
+                <option value="z-score">Z-Score Standardization</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div className="max-w-xl mx-auto">
           <form onSubmit={handleUpload}>
             <div 
@@ -378,19 +418,30 @@ export default function Datasets() {
 
       {stats && (
         <div className="bg-[#111318] shadow-sm rounded-xl border border-slate-800 p-6">
-           <div className="flex justify-between items-center mb-6">
+             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center">
                  <CheckCircle className="h-6 w-6 text-green-500 mr-2" />
                  <h3 className="text-lg font-medium text-slate-200">Dataset Processed Successfully</h3>
               </div>
-              <button 
-                 onClick={handleRetrain}
-                 disabled={retraining}
-                 className="flex items-center px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 transition-colors disabled:opacity-50 shadow-md shadow-purple-900/20 shadow-inner"
-              >
-                 {retraining ? <Clock className="animate-spin h-4 w-4 mr-2" /> : <DatabaseZap className="h-4 w-4 mr-2" />}
-                 {retraining ? 'Retraining Pipeline Active...' : 'Trigger Cloud Retrain Pipeline'}
-              </button>
+              <div className="flex gap-3">
+                {cleanedCsv && (
+                  <button 
+                    onClick={handleDownload}
+                    className="flex items-center px-4 py-2 bg-slate-800 text-slate-300 text-sm font-medium rounded-md border border-slate-700 hover:bg-slate-700 transition-colors shadow-sm"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </button>
+                )}
+                <button 
+                   onClick={handleRetrain}
+                   disabled={retraining}
+                   className="flex items-center px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 transition-colors disabled:opacity-50 shadow-md shadow-purple-900/20 shadow-inner"
+                >
+                   {retraining ? <Clock className="animate-spin h-4 w-4 mr-2" /> : <DatabaseZap className="h-4 w-4 mr-2" />}
+                   {retraining ? 'Retraining Pipeline Active...' : 'Trigger Cloud Retrain Pipeline'}
+                </button>
+              </div>
            </div>
           
           <dl className="grid grid-cols-1 gap-5 sm:grid-cols-4 relative z-10">

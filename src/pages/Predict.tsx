@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, HardDrive, RefreshCcw, Activity, Server, AlertCircle, DownloadCloud, DatabaseZap } from 'lucide-react';
+import { Cpu, HardDrive, RefreshCcw, Activity, Server, AlertCircle, DownloadCloud, DatabaseZap, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { db } from '../lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -212,6 +212,54 @@ export default function Predict() {
     if (level === 'Critical') return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
     if (level === 'High' || level === 'Warning') return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
     return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+  };
+
+  const handleExportSingleCSV = () => {
+    if (!prediction) return;
+    const reportData = [{
+      timestamp: new Date().toISOString(),
+      cpuUsage: params.cpuUsage,
+      ramUsage: params.ramUsage,
+      diskIo: params.diskIo,
+      timeInQueue: params.timeInQueue,
+      state: prediction.state,
+      riskLevel: prediction.riskLevel,
+      confidence: prediction.confidence,
+      probability: prediction.probability,
+      suggestion: prediction.suggestion,
+      isSystemCapable: prediction.isSystemCapable,
+      targetNode: prediction.targetNode || "None"
+    }];
+    const csv = Papa.unparse(reportData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', 'sla_impact_report.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportBatchCSV = () => {
+    if (batchResults.length === 0) return;
+    const reportData = batchResults.map(res => ({
+      id: res.id,
+      timestamp: new Date().toISOString(),
+      cpuUsage: res.cpu,
+      ramUsage: res.ram,
+      diskIo: res.disk,
+      timeInQueue: res.time,
+      predictedState: res.state,
+      failureProbability: res.failProb,
+    }));
+    const csv = Papa.unparse(reportData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', 'batch_predictions_report.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleGithubPredict = async (e: React.FormEvent) => {
@@ -437,8 +485,16 @@ export default function Predict() {
                         {prediction.state}
                       </p>
                     </div>
-                    <div className={cn("px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-widest", getRiskColor(prediction.riskLevel))}>
-                      {prediction.riskLevel} RISK
+                    <div className="flex flex-col items-end gap-2">
+                       <div className={cn("px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-widest", getRiskColor(prediction.riskLevel))}>
+                         {prediction.riskLevel} RISK
+                       </div>
+                       <button
+                         onClick={handleExportSingleCSV}
+                         className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-300 bg-slate-800/80 hover:bg-slate-700/80 rounded border border-slate-700 transition duration-150"
+                       >
+                         <Download className="h-3.5 w-3.5" /> Export SLA Report
+                       </button>
                     </div>
                  </div>
 
@@ -472,10 +528,21 @@ export default function Predict() {
 
       {/* Batch GitHub Prediction Section */}
       <div className="bg-[#111318] shadow-sm rounded-xl border border-slate-800 p-6 mt-8">
-        <h3 className="text-lg font-medium text-slate-200 mb-4 flex items-center">
-          <DownloadCloud className="h-5 w-5 mr-3 text-indigo-400" />
-          Batch Prediction via GitHub
-        </h3>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+          <h3 className="text-lg font-medium text-slate-200 flex items-center">
+            <DownloadCloud className="h-5 w-5 mr-3 text-indigo-400" />
+            Batch Prediction via GitHub
+          </h3>
+          {batchResults.length > 0 && (
+            <button
+              onClick={handleExportBatchCSV}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 rounded border border-indigo-500/20 transition duration-150"
+            >
+              <Download className="h-4 w-4" />
+              Export Batch Report
+            </button>
+          )}
+        </div>
         <p className="text-sm text-slate-500 mb-6">
           Provide a GitHub raw URL to a CSV file to evaluate batch capacity planning and failure predictions. Ensure the CSV contains <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">cpuUsage</code>, <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">ramUsage</code>, <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">diskIo</code>, and <code className="text-xs bg-slate-800 px-1 py-0.5 rounded text-indigo-300">timeInQueue</code> columns.
         </p>
