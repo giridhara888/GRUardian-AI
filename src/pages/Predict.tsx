@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Cpu, HardDrive, RefreshCcw, Activity, Server, AlertCircle, DownloadCloud, DatabaseZap, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { db } from '../lib/firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import * as tf from '@tensorflow/tfjs';
@@ -355,14 +355,44 @@ export default function Predict() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-200">Real-time Task Prediction & System Health</h1>
           <p className="mt-1 text-sm text-slate-500">Monitor live cluster capacity and predict if incoming tasks can be safely scheduled.</p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
-        >
-          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
+          >
+            <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={async () => {
+              setPrediction(null);
+              setBatchResults([]);
+              setGithubUrl('');
+              localStorage.removeItem('predictResult');
+              localStorage.removeItem('predictBatchResults');
+              localStorage.removeItem('predictGithubUrl');
+              
+              if (user) {
+                try {
+                  const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
+                  const snap = await getDocs(q);
+                  const batch = writeBatch(db);
+                  snap.docs.forEach(doc => batch.delete(doc.ref));
+                  await batch.commit();
+                  toast.success("Tasks Cleared");
+                } catch (err) {
+                  toast.error("Failed to clear task history");
+                }
+              } else {
+                toast.success("Local Tasks Cleared");
+              }
+            }}
+            className="px-4 py-2 bg-red-600/10 text-red-500 hover:bg-red-600/20 text-sm font-medium rounded-lg transition-colors border border-red-600/20"
+          >
+            Clear Tasks
+          </button>
+        </div>
       </div>
 
       {nodes.length > 0 && (

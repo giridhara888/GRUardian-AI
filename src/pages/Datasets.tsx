@@ -4,7 +4,7 @@ import axios from 'axios';
 import Papa from 'papaparse';
 import Markdown from 'react-markdown';
 import { db } from '../lib/firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
@@ -301,14 +301,45 @@ export default function Datasets() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-200">Dataset Management</h1>
           <p className="mt-1 text-sm text-slate-500">Upload Google Cluster Trace data and preprocess for ML training.</p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
-        >
-          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700 transition duration-150"
+          >
+            <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={async () => {
+              setStats(null);
+              setAiAnalysis(null);
+              setGithubUrl('');
+              setCleanedCsv(null);
+              localStorage.removeItem('datasetStats');
+              localStorage.removeItem('datasetAiAnalysis');
+              localStorage.removeItem('datasetGithubUrl');
+              
+              if (user) {
+                try {
+                  const q = query(collection(db, 'datasets'), where('userId', '==', user.uid));
+                  const snap = await getDocs(q);
+                  const batch = writeBatch(db);
+                  snap.docs.forEach(doc => batch.delete(doc.ref));
+                  await batch.commit();
+                  toast.success("Tasks Cleared");
+                } catch (err) {
+                  toast.error("Failed to clear tasks");
+                }
+              } else {
+                 toast.success("Tasks Cleared");
+              }
+            }}
+            className="px-4 py-2 bg-red-600/10 text-red-500 hover:bg-red-600/20 text-sm font-medium rounded-lg transition-colors border border-red-600/20"
+          >
+            Clear Tasks
+          </button>
+        </div>
       </div>
 
       <div className="bg-[#111318] shadow-sm rounded-xl border border-slate-800 p-8">

@@ -5,13 +5,15 @@ import {
 import { Target, Zap, Activity, Download, RefreshCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 
 export default function Models() {
   const [data, setData] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedModel1, setSelectedModel1] = useState<string>('GRU (Deep Learning)');
+  const [selectedModel2, setSelectedModel2] = useState<string>('Random Forest Ensemble');
   const { user } = useAuth();
 
   const handleRefresh = () => {
@@ -101,6 +103,24 @@ export default function Models() {
           >
             <RefreshCcw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                if (!user) return;
+                const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
+                const snap = await getDocs(q);
+                const batch = writeBatch(db);
+                snap.docs.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+                toast.success("Tasks Cleared");
+              } catch (err) {
+                toast.error("Failed to clear tasks");
+              }
+            }}
+            className="flex-shrink-0 px-4 py-2 bg-red-600/10 text-red-500 hover:bg-red-600/20 text-sm font-medium rounded-lg transition-colors border border-red-600/20"
+          >
+            Clear Tasks
           </button>
           <button onClick={handleDownloadReport} className="flex-shrink-0 flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold uppercase tracking-wider rounded-lg border border-blue-500/50 shadow-lg shadow-blue-500/20 transition-all duration-200 relative overflow-hidden group">
             <div className="absolute inset-0 bg-white/10 w-full h-full transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></div>
@@ -239,6 +259,106 @@ export default function Models() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Model Pair Comparison Section */}
+      <div className="bg-[#0A0B0E] p-1 border border-slate-800/80 rounded-2xl relative overflow-hidden shadow-xl shadow-black/40 mt-8">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-bl-full pointer-events-none"></div>
+        <div className="bg-[#111318] rounded-xl border border-slate-800/40 relative z-10 w-full overflow-hidden p-6 md:p-8">
+          <div className="mb-6">
+            <h3 className="text-xl font-semibold text-slate-200">Model Pair Comparison</h3>
+            <p className="text-sm text-slate-500 mt-1">Select two models to compare their performance metrics side-by-side.</p>
+          </div>
+          
+          <div className="flex flex-col md:flex-row gap-6 mb-8">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Model A</label>
+              <select 
+                value={selectedModel1} 
+                onChange={(e) => setSelectedModel1(e.target.value)}
+                className="w-full bg-[#0A0B0E] border border-slate-700/80 rounded-lg px-4 py-3 text-sm text-slate-300 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 appearance-none transition-colors cursor-pointer"
+              >
+                {data.metrics.map((m: any) => (
+                  <option key={`m1-${m.model}`} value={m.model}>{m.model}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="flex items-center justify-center pt-6 text-slate-600 hidden md:flex font-mono font-bold">VS</div>
+            
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Model B</label>
+              <select 
+                value={selectedModel2} 
+                onChange={(e) => setSelectedModel2(e.target.value)}
+                className="w-full bg-[#0A0B0E] border border-slate-700/80 rounded-lg px-4 py-3 text-sm text-slate-300 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 appearance-none transition-colors cursor-pointer"
+              >
+                {data.metrics.map((m: any) => (
+                  <option key={`m2-${m.model}`} value={m.model}>{m.model}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-slate-800/80">
+            <table className="min-w-full divide-y divide-slate-800/50">
+              <thead className="bg-[#0A0B0E]">
+                <tr>
+                  <th className="px-6 py-4 text-left text-[11px] font-bold text-slate-500 uppercase tracking-widest">Metric</th>
+                  <th className="px-6 py-4 text-center text-[11px] font-bold text-indigo-400 uppercase tracking-widest w-1/3">{selectedModel1}</th>
+                  <th className="px-6 py-4 text-center text-[11px] font-bold text-purple-400 uppercase tracking-widest w-1/3">{selectedModel2}</th>
+                </tr>
+              </thead>
+              <tbody className="bg-[#111318] divide-y divide-slate-800/50">
+                {(() => {
+                  const m1 = data.metrics.find((m: any) => m.model === selectedModel1) || data.metrics[0];
+                  const m2 = data.metrics.find((m: any) => m.model === selectedModel2) || data.metrics[1];
+                  
+                  return (
+                    <>
+                      <tr className="hover:bg-slate-800/20 transition-colors">
+                        <td className="px-6 py-5 text-sm font-semibold text-slate-300">Accuracy</td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m1.accuracy > m2.accuracy ? 'text-green-400' : ''}>{(m1.accuracy * 100).toFixed(2)}%</span>
+                        </td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m2.accuracy > m1.accuracy ? 'text-green-400' : ''}>{(m2.accuracy * 100).toFixed(2)}%</span>
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/20 transition-colors bg-slate-900/10">
+                        <td className="px-6 py-5 text-sm font-semibold text-slate-300">Precision</td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m1.precision > m2.precision ? 'text-green-400' : ''}>{(m1.precision * 100).toFixed(2)}%</span>
+                        </td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m2.precision > m1.precision ? 'text-green-400' : ''}>{(m2.precision * 100).toFixed(2)}%</span>
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/20 transition-colors">
+                        <td className="px-6 py-5 text-sm font-semibold text-slate-300">Recall</td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m1.recall > m2.recall ? 'text-green-400' : ''}>{(m1.recall * 100).toFixed(2)}%</span>
+                        </td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m2.recall > m1.recall ? 'text-green-400' : ''}>{(m2.recall * 100).toFixed(2)}%</span>
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-800/20 transition-colors bg-slate-900/10">
+                        <td className="px-6 py-5 text-sm font-semibold text-slate-300">F1-Score</td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m1.f1 > m2.f1 ? 'text-green-400' : ''}>{(m1.f1 * 100).toFixed(2)}%</span>
+                        </td>
+                        <td className="px-6 py-5 text-sm font-mono text-center text-slate-300">
+                          <span className={m2.f1 > m1.f1 ? 'text-green-400' : ''}>{(m2.f1 * 100).toFixed(2)}%</span>
+                        </td>
+                      </tr>
+                    </>
+                  );
+                })()}
               </tbody>
             </table>
           </div>
