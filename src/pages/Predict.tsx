@@ -46,6 +46,7 @@ export default function Predict() {
     if (saved) return JSON.parse(saved);
     return [];
   });
+  const [confirmClear, setConfirmClear] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
   
@@ -366,6 +367,11 @@ export default function Predict() {
           </button>
           <button
             onClick={async () => {
+              if (!confirmClear) {
+                setConfirmClear(true);
+                setTimeout(() => setConfirmClear(false), 3000);
+                return;
+              }
               setPrediction(null);
               setBatchResults([]);
               setGithubUrl('');
@@ -381,16 +387,18 @@ export default function Predict() {
                   snap.docs.forEach(doc => batch.delete(doc.ref));
                   await batch.commit();
                   toast.success("Tasks Cleared");
+                  setConfirmClear(false);
                 } catch (err) {
                   toast.error("Failed to clear task history");
                 }
               } else {
                 toast.success("Local Tasks Cleared");
+                setConfirmClear(false);
               }
             }}
-            className="px-4 py-2 bg-red-600/10 text-red-500 hover:bg-red-600/20 text-sm font-medium rounded-lg transition-colors border border-red-600/20"
+            className={`px-4 py-2 ${confirmClear ? 'bg-red-600 text-white' : 'bg-red-600/10 text-red-500 hover:bg-red-600/20'} text-sm font-medium rounded-lg transition-colors border border-red-600/20`}
           >
-            Clear Tasks
+            {confirmClear ? 'Click again to confirm' : 'Clear Tasks'}
           </button>
         </div>
       </div>

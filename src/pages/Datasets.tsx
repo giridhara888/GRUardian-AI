@@ -25,6 +25,7 @@ export default function Datasets() {
   const [imputationStrategy, setImputationStrategy] = useState('mean');
   const [normalizationStrategy, setNormalizationStrategy] = useState('min-max');
   const [cleanedCsv, setCleanedCsv] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const { user } = useAuth();
   
   const [githubUrl, setGithubUrl] = useState(() => {
@@ -312,6 +313,11 @@ export default function Datasets() {
           </button>
           <button
             onClick={async () => {
+              if (!confirmClear) {
+                setConfirmClear(true);
+                setTimeout(() => setConfirmClear(false), 3000);
+                return;
+              }
               setStats(null);
               setAiAnalysis(null);
               setGithubUrl('');
@@ -328,16 +334,18 @@ export default function Datasets() {
                   snap.docs.forEach(doc => batch.delete(doc.ref));
                   await batch.commit();
                   toast.success("Tasks Cleared");
+                  setConfirmClear(false);
                 } catch (err) {
                   toast.error("Failed to clear tasks");
                 }
               } else {
                  toast.success("Tasks Cleared");
+                 setConfirmClear(false);
               }
             }}
-            className="px-4 py-2 bg-red-600/10 text-red-500 hover:bg-red-600/20 text-sm font-medium rounded-lg transition-colors border border-red-600/20"
+            className={`px-4 py-2 ${confirmClear ? 'bg-red-600 text-white' : 'bg-red-600/10 text-red-500 hover:bg-red-600/20'} text-sm font-medium rounded-lg transition-colors border border-red-600/20`}
           >
-            Clear Tasks
+            {confirmClear ? 'Click again to confirm' : 'Clear Tasks'}
           </button>
         </div>
       </div>

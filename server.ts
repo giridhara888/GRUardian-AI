@@ -23,11 +23,37 @@ async function startServer() {
       const totalMemory = os.totalmem() || 1;
       const freeMemory = os.freemem() || 0;
       
-      const memoryUsed = totalMemory - freeMemory;
-      const memoryUsagePercent = (memoryUsed / totalMemory) * 100;
+      let memoryUsagePercent = 0;
+      try {
+        // Try to read container-aware memory via cgroup v2 (modern Docker/Railway)
+        const fs = await import("fs");
+        if (fs.existsSync("/sys/fs/cgroup/memory.current") && fs.existsSync("/sys/fs/cgroup/memory.max")) {
+          const memCurrent = parseInt(fs.readFileSync("/sys/fs/cgroup/memory.current", "utf8").trim(), 10);
+          let memMax = parseInt(fs.readFileSync("/sys/fs/cgroup/memory.max", "utf8").trim(), 10);
+          if (isNaN(memMax)) memMax = totalMemory;
+          memoryUsagePercent = (memCurrent / memMax) * 100;
+        } else {
+          throw new Error("No cgroups");
+        }
+      } catch (e) {
+        // Fallback to standard OS metrics
+        const memoryUsed = totalMemory - freeMemory;
+        memoryUsagePercent = (memoryUsed / totalMemory) * 100;
+        
+        // If hosted on a massive shared node (e.g., Railway hosts often have 64GB+ RAM)
+        // the generic totalmem() reflects the host, naturally hovering around 70-80%.
+        // We fallback to checking the specific Node process memory against an assumed 512MB container limit.
+        if (totalMemory > 16 * 1024 * 1024 * 1024) {
+          const processMem = process.memoryUsage().rss;
+          memoryUsagePercent = (processMem / (512 * 1024 * 1024)) * 100;
+        }
+      }
+      
+      if (memoryUsagePercent > 100) memoryUsagePercent = 100;
       
       // Calculate simple CPU load using loadavg (1 minute avg) normalized by core count
       const loadavg = os.loadavg() || [0,0,0];
+
       const coreCount = cpus.length > 0 ? cpus.length : 1;
       let cpuLoadPercent = (loadavg[0] / coreCount) * 100;
       if (cpuLoadPercent > 100) cpuLoadPercent = 100;

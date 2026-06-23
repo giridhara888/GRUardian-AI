@@ -14,6 +14,7 @@ export default function Models() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedModel1, setSelectedModel1] = useState<string>('GRU (Deep Learning)');
   const [selectedModel2, setSelectedModel2] = useState<string>('Random Forest Ensemble');
+  const [confirmClear, setConfirmClear] = useState(false);
   const { user } = useAuth();
 
   const handleRefresh = () => {
@@ -106,6 +107,11 @@ export default function Models() {
           </button>
           <button
             onClick={async () => {
+              if (!confirmClear) {
+                setConfirmClear(true);
+                setTimeout(() => setConfirmClear(false), 3000);
+                return;
+              }
               try {
                 if (!user) return;
                 const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
@@ -114,13 +120,14 @@ export default function Models() {
                 snap.docs.forEach(doc => batch.delete(doc.ref));
                 await batch.commit();
                 toast.success("Tasks Cleared");
+                setConfirmClear(false);
               } catch (err) {
                 toast.error("Failed to clear tasks");
               }
             }}
-            className="flex-shrink-0 px-4 py-2 bg-red-600/10 text-red-500 hover:bg-red-600/20 text-sm font-medium rounded-lg transition-colors border border-red-600/20"
+            className={`flex-shrink-0 px-4 py-2 ${confirmClear ? 'bg-red-600 text-white' : 'bg-red-600/10 text-red-500 hover:bg-red-600/20'} text-sm font-medium rounded-lg transition-colors border border-red-600/20`}
           >
-            Clear Tasks
+            {confirmClear ? 'Click again to confirm' : 'Clear Tasks'}
           </button>
           <button onClick={handleDownloadReport} className="flex-shrink-0 flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold uppercase tracking-wider rounded-lg border border-blue-500/50 shadow-lg shadow-blue-500/20 transition-all duration-200 relative overflow-hidden group">
             <div className="absolute inset-0 bg-white/10 w-full h-full transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></div>
